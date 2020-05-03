@@ -1,0 +1,845 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title></title>
+</head>
+<body>
+<div>
+    <pre class="wp-block-preformatted">I give this example for who are using latest ASP.NET Core MVC 2.2 and EF Core 3.1 to set the multi tiers projects web application. How the solution code got simplified with compliable and executable, and commands on <em>Package Manage Console</em>. The base code references <a href="https://chsakell.com/" target="_blank" rel="noreferrer noopener">chsakell's Blog</a> from <strong>MIT</strong> about <strong>Building REST APIs using ASP.NET Core and EF&nbsp;Core</strong> in 2016. 
+Here are the code setting in the solution Scheduler: Adding three projects <em>Scheduler.Model, Scheduler.Data and Scheduler.Api</em>.
+
+1. <strong>Create the Models and Data Repositories:</strong>
+Create two projects separately <em>Scheduler.Model</em> and <em>Scheduler.Data</em> by select <strong>Class Library (.NET Core)</strong>.
+Create project <em>Scheduler.Api</em> by select <strong>ASP.NET Core Web Application (.NET Core)</strong>.
+Let us put the following code here:
+<em>IEntityBase.cs</em> -- Adding this interface into <em>Scheduler.Model</em> to hold the base interface for the <em>Entities</em>.
+public interface IEntityBase 
+{ 
+    int Id { get; set; } 
+}
+
+<strong>Create</strong> a folder <em>Entities</em> in the <em>Scheduler.Model</em>, then create a class <em>Schedule.cs</em> in the <em>Entities</em>.
+public class Schedule : IEntityBase
+{
+    public Schedule()
+    {
+        Attendees = new List&lt;Attendee&gt;();
+    }
+    public int Id { get; set; } 
+    public string Title { get; set; } 
+    public string Description { get; set; } 
+    public DateTime TimeStart { get; set; } 
+    public DateTime TimeEnd { get; set; } 
+    public string Location { get; set; } 
+    public ScheduleType Type { get; set; } 
+    public ScheduleStatus Status { get; set; } 
+    public DateTime DateCreated { get; set; } 
+    public DateTime DateUpdated { get; set; } 
+    public User Creator { get; set; } 
+    public int CreatorId { get; set; } 
+    public ICollection&lt;Attendee&gt; Attendees { get; set; } 
+}
+
+<strong>Create</strong> <em>User</em> entity class in <em>User.cs</em>, and <em>Attendee</em> class in <em>Attendee.cs</em> in folder <em>Entities</em>. Write two enum for <em>ScheduleEnum.cs</em> in Entities.
+public enum ScheduleType
+{
+    Work = 1,
+    Coffee = 2,
+    Doctor = 3,
+    Shopping = 4,
+    Other = 5
+}
+
+public enum ScheduleStatus 
+{ 
+    Valid = 1, 
+    Cancelled = 2 
+}
+
+<strong>Install</strong> EntityFrameworkCore Nuget Package in <em>Scheduler.Data</em> to set the DbContext class and a reference to the <em>Scheduler.Model</em> project.
+Add a folder named <em>Abstract</em> in <em>Scheduler.Model</em> and create the following interfaces:
+
+<em>IEntityBaseRepository.cs</em>
+public interface IEntityBaseRepository&lt;T&gt; where T : class, IEntityBase, new()
+{
+    IEnumerable&lt;T&gt; AllIncluding(params Expression&lt;Func&lt;T, object&gt;&gt;[]  includeProperties);
+    IEnumerable&lt;T&gt; GetAll();
+    int Count();
+    T GetSingle(int id);
+    T GetSingle(Expression&lt;Func&lt;T, bool&gt;&gt; predicate);
+    T GetSingle(Expression&lt;Func&lt;T, bool&gt;&gt; predicate, params Expression&lt;Func&lt;T, object&gt;&gt;[] includeProperties);
+    IEnumerable&lt;T&gt; FindBy(Expression&lt;Func&lt;T, bool&gt;&gt; predicate);
+    void Add(T entity);
+    void Update(T entity);
+    void Delete(T entity);
+    void DeleteWhere(Expression&lt;Func&lt;T, bool&gt;&gt; predicate);
+    void Commit();
+}
+
+And three repositories interface in one file <em>IRepositories.cs</em>:
+public interface IScheduleRepository:IEntityBaseRepository&lt;Schedule&gt;{ }
+public interface IUserRepository:IEntityBaseRepository&lt;User&gt;{ }
+public interface IAttendeeRepository:IEntityBaseRepository&lt;Attendee&gt;{ }
+
+<strong>Create</strong> <em>Repositories</em> folder in <em>Scheduler.Data</em>, then create a <em>EntityBaseRepository</em> class in this folder, and using this base class create ScheduleRepository, <em>UserRepository</em> and <em>AttendeeRepository</em> in three files.
+
+<em>EntityBaseRepository</em>.cs
+public class EntityBaseRepository : IEntityBaseRepository
+where T : class, IEntityBase, new()
+{
+    private SchedulerContext _context; 
+    #region Properties 
+    public EntityBaseRepository(SchedulerContext context)
+    {
+        _context = context;
+    } 
+    #endregion
+
+    public virtual IEnumerable&lt;T&gt; GetAll()
+    {   
+       return _context.Set&lt;T&gt;().AsEnumerable();
+    }
+
+    public virtual int Count()
+    {
+       return _context.Set&lt;T&gt;().Count();
+    }
+
+    public virtual IEnumerable&lt;T&gt; AllIncluding(params
+    Expression&lt;Func&lt;T, object&gt;&gt;[] includeProperties)
+    {
+        IQueryable&lt;T&gt; query = _context.Set&lt;T&gt;();
+        foreach (var includeProperty in includeProperties)
+        {
+            query = query.Include(includeProperty);
+        }
+        return query.AsEnumerable();
+    }
+
+    public T GetSingle(int id)
+    {
+        return _context.Set&lt;T&gt;().FirstOrDefault(x =&gt; x.Id == id);
+    }
+
+    public T GetSingle(Expression&lt;Func&lt;T, bool&gt;&gt; predicate)
+    {
+        return _context.Set&lt;T&gt;().FirstOrDefault(predicate);
+    }
+
+    public T GetSingle(Expression&lt;Func&lt;T, bool&gt;&gt; predicate, 
+       params Expression&lt;Func&lt;T, object&gt;&gt;[] includeProperties)
+    {
+        IQueryable&lt;T&gt; query = _context.Set&lt;T&gt;();
+        foreach (var includeProperty in includeProperties)
+        {
+            query = query.Include(includeProperty);
+        }
+        return query.Where(predicate).FirstOrDefault();
+    }
+
+    public virtual IEnumerable&lt;T&gt; FindBy(Expression&lt;Func&lt;T, bool&gt;&gt; 
+    predicate)
+    {
+        return _context.Set&lt;T&gt;().Where(predicate);
+    }
+
+    public virtual void Add(T entity)
+    {
+        EntityEntry dbEntityEntry = _context.Entry&lt;T&gt;(entity); 
+        _context.Set&lt;T&gt;().Add(entity);
+    }
+
+    public virtual void Update(T entity)
+    {
+        EntityEntry dbEntityEntry = _context.Entry&lt;T&gt;(entity);
+        dbEntityEntry.State = EntityState.Modified;
+    }
+
+    public virtual void Delete(T entity)
+    {
+        EntityEntry dbEntityEntry = _context.Entry&lt;T&gt;(entity);
+        dbEntityEntry.State = EntityState.Deleted;
+    }
+
+    public virtual void DeleteWhere(Expression&lt;Func&lt;T, bool&gt;&gt; 
+    predicate)
+    {
+        IEnumerable&lt;T&gt; entities=_context.Set&lt;T&gt;().Where(predicate);
+        foreach (var entity in entities)
+        {
+            _context.Entry&lt;T&gt;(entity).State = EntityState.Deleted;
+        }
+    }
+
+    public virtual void Commit()
+    {
+        _context.SaveChanges();
+    }
+}
+
+<em>ScheduleRepository</em>.cs
+public class ScheduleRepository : EntityBaseRepository, IScheduleRepository
+{
+    public ScheduleRepository(SchedulerContext context): base(context){ }
+}
+
+<strong>Create</strong> <em>UserRepositor</em>y class and <em><em>AttendeeRepository</em></em> class similar as ScheduleRepository.
+
+<strong>Add</strong> the SchedulerContext class under the root of the <em>Scheduler.Data</em> project install packages <em>Microsoft.EntityFrameworkCore (3.1.3)</em> and <em>Microsoft.EntityFrameworkCore.Relational (3.1.3)</em> to access the <em>SchdulerDb</em>.
+<em>SchedulerContext.cs</em>
+public class SchedulerContext : DbContext
+{
+    public DbSet&lt;Schedule&gt; Schedules { get; set; }
+    public DbSet&lt;User&gt; Users { get; set; }
+    public DbSet&lt;Attendee&gt; Attendees { get; set; }
+    public SchedulerContext(DbContextOptions options): base(options) 
+    { }
+    protected override void OnModelCreating(ModelBuilder modelBuldr)
+    {
+        var fkey = modelBuldr.Model.GetEntityTypes()
+                .SelectMany(e =&gt; e.GetForeignKeys());
+        foreach (var relationship in fkey) 
+        { 
+            relationship.DeleteBehavior = DeleteBehavior.Restrict; 
+        }                     
+
+        modelBuldr.Entity&lt;Schedule&gt;().ToTable(<span class="has-inline-color has-primary-color">"Schedule"</span>);
+        modelBuldr.Entity&lt;Schedule&gt;().Property(s =&gt; s.CreatorId) 
+            .IsRequired(); 
+        modelBuldr.Entity&lt;Schedule&gt;().Property(s =&gt; s.DateCreated) 
+            .HasDefaultValue(DateTime.Now);
+        modelBuldr.Entity&lt;Schedule&gt;().Property(s =&gt; s.DateUpdated) 
+            .HasDefaultValue(DateTime.Now);
+        modelBuldr.Entity&lt;Schedule&gt;().Property(s =&gt; s.Type) 
+            .HasDefaultValue(ScheduleType.Work);
+        modelBuldr.Entity&lt;Schedule&gt;().Property(s =&gt; s.Status)
+            .HasDefaultValue(ScheduleStatus.Valid);
+        modelBuldr.Entity&lt;Schedule&gt;().HasOne(s =&gt; s.Creator) 
+            .WithMany(c =&gt; c.SchedulesCreated);
+        modelBuldr.Entity&lt;User&gt;().ToTable(<span class="has-inline-color has-primary-color">"User"</span>);
+        modelBuldr.Entity&lt;User&gt;().Property(u =&gt; u.Name) 
+            .HasMaxLength(100).IsRequired(); 
+        modelBuldr.Entity&lt;Attendee&gt;().ToTable<span class="has-inline-color has-primary-color">("Attendee"</span>);
+        modelBuldr.Entity&lt;Attendee&gt;().HasOne(a =&gt; a.User)          
+            .WithMany(u =&gt; u.SchedulesAttended) 
+            .HasForeignKey(a =&gt; a.UserId);
+        modelBuldr.Entity&lt;Attendee&gt;().HasOne(a =&gt; a.Schedule) 
+            .WithMany(s =&gt; s.Attendees) 
+            .HasForeignKey(a =&gt; a.ScheduleId);
+    }
+}
+
+<strong>Add</strong> a Database Initializer class that will init some mock data. You can find the <em>SchedulerDbInitializer</em> class from Chsakell's Blog <a href="https://github.com/chsakell/dotnetcore-entityframework-api/blob/master/Scheduler.Data/SchedulerDbInitializer.cs" target="_blank" rel="noreferrer noopener">here</a>.
+
+<strong>2. Build the API using REST architecture principles</strong>
+<strong>Install</strong> following Nuget Packages at <em>Scheduler.Api</em> project. Here uses MVC services communicating and AutoMapper mapping the tables:
+AutoMapper (9.0.0)
+Microsoft.AspNetCoreMvc (2.2.0)
+Microsoft.AspNetCoreMvc.NewtonsoftJson (3.1.3)
+Microsoft.EntityFrameworkCore (3.1.3) 
+Microsoft.EntityFrameworkCore.SqlServer (3.1.3) 
+Microsoft.EntityFrameworkCore.Tools (3.1.3)
+Microsoft.VisualStudio.Web.CodeGeneration.Design (3.1.1)
+
+<strong>Add</strong> <em>Scheduler.Api</em> project References <em>Scheduler.Model</em> and <em>Scheduler.Data</em>.
+
+<strong>Add</strong> following connectionstring in to appsettings.json:
+<span class="has-inline-color" style="color:#9d4a15">"ConnectionStrings": {
+"SchedulerDb": "Server={servename};Database=SchedulerDb;Trusted_Connection=True;MultipleActiveResultSets=true"
+},</span>
+
+<strong>Using</strong> Newtonsoft.Json.Serialization in <em>Startup.cs</em>:
+public Startup(IConfiguration configuration)
+{ Configuration = configuration; }
+
+public IConfiguration Configuration { get; }
+// This method gets called by the runtime. Use this method to add
+// services to the container. 
+public void ConfigureServices(IServiceCollection services)
+{
+    services.AddDbContext&lt;SchedulerContext&gt;(options =&gt;
+         options.UseSqlServer(Configuration
+        .GetConnectionString("SchedulerDb"), b =&gt; 
+         b.MigrationsAssembly("<span class="has-inline-color" style="color:#d6391d">Scheduler.Api</span>")));
+ 
+    // Repositories 
+    services.AddScoped&lt;IScheduleRepository, ScheduleRepository&gt;();
+    services.AddScoped&lt;IUserRepository, UserRepository&gt;();
+    services.AddScoped&lt;IAttendeeRepository, AttendeeRepository&gt;();
+
+    AutoMapperConfiguration.Configure();
+    // Enable Cors 
+    services.AddCors();
+
+    // Add MVC services to the services container.
+    services.AddMvc().AddNewtonsoftJson(options =&gt;
+        options.SerializerSettings.ContractResolver = new
+        DefaultContractResolver());
+} 
+
+// This method gets called by the runtime. Use this method to 
+// configure the HTTP request pipeline. 
+public void Configure(IApplicationBuilder app, IWebHostEnvironment
+env)
+{
+    if (env.IsDevelopment()){ app.UseDeveloperExceptionPage(); } 
+    app.UseHttpsRedirection(); 
+    app.UseRouting(); 
+    app.UseAuthorization(); 
+    app.UseEndpoints(endpoints =&gt; { endpoints.MapControllers(); }); 
+}
+
+<strong>There</strong> is a mismatch between <em>appsettings.json</em> which holds the database connection string in <em>Scheduler.Api</em> and the <em>SchedulerDbContext</em> class belongs to the <em>Scheduler.Data</em>.
+The above code in ConfigureServices <em>Startup.cs</em> informs EntityFrameworkCore the assembly to be used for migrations.
+
+services.AddDbContext&lt;SchedulerContext&gt;(options =&gt;
+options.UseSqlServer(Configuration
+.GetConnectionString("SchedulerDb"), b =&gt;
+b.MigrationsAssembly("Scheduler.Api")));
+
+<strong>We</strong> can use migration in solution directory by following command in the Package Manager Console:
+
+<span class="has-inline-color" style="color:#272b2d">pm&gt;add migration initial
+</span>
+<strong>3. ViewModel validations and mappings</strong>
+<strong>Create</strong> a folder <em>ViewModels</em> in <em>Scheduler.Api</em>, and add classses to this folder: <em>ScheduleViewMode</em>, <em>AttendeeViewModel</em>, <em>UserViewModel</em> and <em>ScheduleDetailsViewModel</em>.
+
+<em>ScheduleViewMode</em>.cs
+public class ScheduleViewModel : IValidatableObject
+{
+    public int Id { get; set; }
+    public string Title { get; set; }
+    public string Description { get; set; }
+    public DateTime TimeStart { get; set; }
+    public DateTime TimeEnd { get; set; }
+    public string Location { get; set; }
+    public string Type { get; set; }
+    public string Status { get; set; }
+    public DateTime DateCreated { get; set; }
+    public DateTime DateUpdated { get; set; }
+    public string Creator { get; set; }
+    public int CreatorId { get; set; }
+    public int[] Attendees { get; set; }
+    public IEnumerable&lt;ValidationResult&gt; Validate(ValidationContext
+    validationContext) 
+    { 
+        var validator = new ScheduleViewModelValidator(); 
+        var result = validator.Validate(this);
+        return result.Errors.Select(item =&gt; new
+            ValidationResult(item.ErrorMessage, new[] 
+            { item.PropertyName })); 
+    }
+}
+
+<em>ScheduleDetailsViewModel.cs</em>
+public class ScheduleDetailsViewModel 
+{ 
+    public int Id { get; set; } 
+    public string Title { get; set; } 
+    public string Description { get; set; } 
+    public DateTime TimeStart { get; set; } 
+    public DateTime TimeEnd { get; set; } 
+    public string Location { get; set; } 
+    public string Type { get; set; } 
+    public string Status { get; set; } 
+    public DateTime DateCreated { get; set; } 
+    public DateTime DateUpdated { get; set; } 
+    public string Creator { get; set; } 
+    public int CreatorId { get; set; } 
+    public ICollection&lt;UserViewModel&gt; Attendees { get; set; } 
+    // Lookups 
+    public string[] Statuses { get; set; } 
+    public string[] Types { get; set; } 
+}
+
+<strong>Add</strong> custom validations <em>FluentValidation</em> in Nuget Package to validate the post ViewModel data. Use following example you can create other ViewModel Validator.
+
+<em>UserViewModelValidator.cs</em>
+public class UserViewModelValidator : AbstractValidator&lt;UserViewModel&gt; 
+{ 
+    public UserViewModelValidator() 
+    { 
+        RuleFor(user =&gt; user.Name).NotEmpty
+            .WithMessage("Name cannot be empty"); 
+        RuleFor(user =&gt; user.Profession)
+            .NotEmpty().WithMessage("Profession cannot be empty"); 
+        RuleFor(user =&gt; user.Avatar)
+            .NotEmpty().WithMessage("Profession cannot be empty"); 
+    } 
+}
+
+<strong><em>Add</em></strong> a new folder named <em>Mappings</em> inside the <em>ViewModels</em> and set the Domain to ViewModel mappings.
+
+<em>DomainToViewModelMappingProfile.cs</em>
+public class DomainToViewModelMappingProfile : Profile 
+{ 
+    public DomainToViewModelMappingProfile() 
+    { 
+        CreateMap&lt;Schedule, ScheduleViewModel&gt;(); 
+        CreateMap&lt;ScheduleViewModel, Schedule&gt;(); 
+        CreateMap&lt;User, UserViewModel&gt;(); 
+        CreateMap&lt;UserViewModel, User&gt;(); 
+        CreateMap&lt;Attendee, AttendeeViewModel&gt;();
+        CreateMap&lt;AttendeeViewModel, Attendee&gt;(); 
+    } 
+}
+
+<em>AutoMapperConfiguration.cs</em>
+public class AutoMapperConfiguration 
+{ 
+    public static void Configure() 
+    { 
+        (new MapperConfiguration(x =&gt; { 
+            x.AddProfile&lt;DomainToViewModelMappingProfile&gt;(); 
+            })).CreateMapper(); 
+    } 
+}
+
+<strong>Add</strong> a new folder <em>Core</em> at the root of the API application and create a helper class for supporting pagination in our SPA.
+
+<em>PaginationHeader.cs</em>
+public class PaginationHeader 
+{
+    public int CurrentPage { get; set; } 
+    public int ItemsPerPage { get; set; } 
+    public int TotalItems { get; set; } 
+    public int TotalPages { get; set; } 
+    public PaginationHeader(int currentPage, int itemsPerPage, 
+        int totalItems, int totalPages) 
+    { 
+        this.CurrentPage = currentPage; 
+        this.ItemsPerPage = itemsPerPage; 
+        this.TotalItems = totalItems; 
+        this.TotalPages = totalPages; 
+    }
+}
+
+<strong>Using</strong> encapsulate pagination information and customer error message for server side error. If the client wants to retrieve the 5 schedules of the second page, the request must have a “Pagination” header equal to “2,5”. All the required information the client needs to build a pagination bar will be contained inside a corresponding response header. To server return error using the global exception handler. Here create an <em>Extensions</em> class inside the <em>Core</em> folder.
+
+<em>Extensions.cs</em>
+public static void AddPagination(this HttpResponse response, int currentPage, int itemsPerPage, int totalItems, int totalPages) 
+{ 
+    var paginationHeader = new PaginationHeader(currentPage,
+             itemsPerPage, totalItems, totalPages); 
+    response.Headers.Add("Pagination", Newtonsoft.Json.JsonConvert
+            .SerializeObject(paginationHeader)); 
+    // CORS 
+    response.Headers
+            .Add("access-control-expose-headers", "Pagination"); 
+} 
+
+public static void AddApplicationError(this HttpResponse response,
+ string message) 
+{ 
+    response.Headers.Add("Application-Error", message); 
+    // CORS 
+    response.Headers
+            .Add("access-control-expose-headers", 
+                "Application-Error"); 
+}
+
+<strong>4. Create the API Controllers for SPA Functionalities</strong>
+<strong>Create</strong> a folder <em>Controllers</em> in the API root directory. then create following classes in that folder with the requirement.
+
+<em>SchedulesController.cs</em>
+[Route("api/[controller]")]
+public class SchedulesController : Controller
+{
+    private IScheduleRepository _scheduleRepository;
+    private IAttendeeRepository _attendeeRepository;
+    private IUserRepository _userRepository;
+    int page = 1;
+    int pageSize = 4;
+
+    private readonly IMapper _mapper;
+
+    // Assign the object in the constructor for dependency injection
+    public SchedulesController(IScheduleRepository  
+             scheduleRepository,
+             IAttendeeRepository attendeeRepository,
+             IUserRepository userRepository)
+    {
+         _scheduleRepository = scheduleRepository;
+         _attendeeRepository = attendeeRepository;
+         _userRepository = userRepository;
+    }
+
+    public IActionResult Get()
+    {
+        var pagination = Request.Headers["Pagination"];
+
+        if (!string.IsNullOrEmpty(pagination))
+        {
+            string[] vals = pagination.ToString().Split(',');
+            int.TryParse(vals[0], out page);
+            int.TryParse(vals[1], out pageSize);
+        }
+
+        int currentPage = page;
+        int currentPageSize = pageSize;
+        var totalSchedules = _scheduleRepository.Count();
+        var totalPages = (int)Math.Ceiling((double)totalSchedules / 
+                pageSize);
+
+        IEnumerable<Schedule> _schedules = _scheduleRepository
+                .AllIncluding(s => s.Creator, s => s.Attendees)
+                .OrderBy(s => s.Id)
+                .Skip((currentPage - 1) * currentPageSize)
+                .Take(currentPageSize)
+                .ToList();
+
+        Response.AddPagination(page, pageSize, totalSchedules, 
+                totalPages);
+
+        IEnumerable<ScheduleViewModel> _schedulesVM =
+                _mapper.Map<IEnumerable<Schedule>,
+                IEnumerable<ScheduleViewModel>>(_schedules);
+
+        return new OkObjectResult(_schedulesVM);
+    }
+
+    [HttpGet("{id}", Name = "GetSchedule")]
+    public IActionResult Get(int id)
+    {
+        Schedule _schedule = _scheduleRepository
+                .GetSingle(s => s.Id == id, s => s.Creator, s =>
+            s.Attendees);
+
+        if (_schedule != null)
+        {
+            ScheduleViewModel _scheduleVM = _mapper.Map<Schedule,
+            ScheduleViewModel>(_schedule);
+            return new OkObjectResult(_scheduleVM);
+        }
+        else
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpGet("{id}/details", Name = "GetScheduleDetails")]
+    public IActionResult GetScheduleDetails(int id)
+    {
+        Schedule _schedule = _scheduleRepository
+                .GetSingle(s => s.Id == id, s => s.Creator, s =>
+                s.Attendees);
+
+        if (_schedule != null)
+        {
+            ScheduleDetailsViewModel _scheduleDetailsVM =
+                    _mapper.Map<Schedule,
+                    ScheduleDetailsViewModel>(_schedule);
+
+            foreach (var attendee in _schedule.Attendees)
+            {
+                User _userDb =
+                   _userRepository.GetSingle(attendee.UserId);
+                _scheduleDetailsVM.Attendees
+                                      .Add(_mapper.Map<User,
+                                       UserViewModel>(_userDb));
+            }
+
+            return new OkObjectResult(_scheduleDetailsVM);
+        }
+        else
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpPost]
+    public IActionResult Create([FromBody]ScheduleViewModel schedule)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        Schedule _newSchedule = _mapper.Map<ScheduleViewModel,
+                    Schedule>(schedule);
+        _newSchedule.DateCreated = DateTime.Now;
+        _scheduleRepository.Add(_newSchedule);
+        _scheduleRepository.Commit();
+
+        foreach (var userId in schedule.Attendees)
+        {
+            _newSchedule.Attendees.Add(new Attendee { UserId =
+                    userId });
+        }
+        _scheduleRepository.Commit();
+        schedule = _mapper.Map<Schedule,
+                    ScheduleViewModel>(_newSchedule);
+        CreatedAtRouteResult result = CreatedAtRoute("GetSchedule",
+                    new { controller = "Schedules",
+                    id = schedule.Id }, schedule);
+        return result;
+    }
+
+    [HttpPut("{id}")]
+    public IActionResult Put(int id, [FromBody]ScheduleViewModel
+            schedule)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        Schedule _scheduleDb = _scheduleRepository.GetSingle(id);
+
+        if (_scheduleDb == null)
+        {
+            return NotFound();
+        }
+        else
+        {
+            _scheduleDb.Title = schedule.Title;
+            _scheduleDb.Location = schedule.Location;
+            _scheduleDb.Description = schedule.Description;
+            _scheduleDb.Status = (ScheduleStatus)Enum.
+                    Parse(typeof(ScheduleStatus), schedule.Status);
+            _scheduleDb.Type = (ScheduleType)Enum.
+                    Parse(typeof(ScheduleType), schedule.Type);
+            _scheduleDb.TimeStart = schedule.TimeStart;
+            _scheduleDb.TimeEnd = schedule.TimeEnd;
+
+            // Remove current attendees
+            _attendeeRepository.DeleteWhere(a =>
+                    a.ScheduleId == id);
+
+            foreach (var userId in schedule.Attendees)
+            {
+                _scheduleDb.Attendees
+                        .Add(new Attendee { ScheduleId = id,
+                        UserId = userId });
+            }
+
+            _scheduleRepository.Commit();
+        }
+
+        schedule = _mapper.Map<Schedule,
+                    ScheduleViewModel>(_scheduleDb);
+        return new NoContentResult();
+    }
+
+    [HttpDelete("{id}", Name = "RemoveSchedule")]
+    public IActionResult Delete(int id)
+    {
+        Schedule _scheduleDb = _scheduleRepository.GetSingle(id);
+
+        if (_scheduleDb == null)
+        {
+            return new NotFoundResult();
+        }
+        else
+        {
+            _attendeeRepository.DeleteWhere(a => a.ScheduleId == id);
+            _scheduleRepository.Delete(_scheduleDb);
+            _scheduleRepository.Commit();
+            return new NoContentResult();
+        }
+    }
+
+    [HttpDelete("{id}/removeattendee/{attendee}")]
+    public IActionResult Delete(int id, int attendee)
+    {
+        Schedule _scheduleDb = _scheduleRepository.GetSingle(id);
+
+        if (_scheduleDb == null)
+        {
+            return new NotFoundResult();
+        }
+        else
+        {
+            _attendeeRepository.DeleteWhere(a => a.ScheduleId == id &&
+                 a.UserId == attendee);
+            _attendeeRepository.Commit();
+            return new NoContentResult();
+        }
+    }
+}
+
+<em>UsersController.cs</em>
+[Microsoft.AspNetCore.Components.Route("api/[controller]")]
+public class UsersController : Controller
+{
+    private IUserRepository _userRepository;
+    private IScheduleRepository _scheduleRepository;
+    private IAttendeeRepository _attendeeRepository;
+    private readonly IMapper _mapper;
+
+    int page = 1;
+    int pageSize = 10;
+    public UsersController(IUserRepository userRepository,
+                        IScheduleRepository scheduleRepository,
+                        IAttendeeRepository attendeeRepository)
+    {
+        _userRepository = userRepository;
+        _scheduleRepository = scheduleRepository;
+        _attendeeRepository = attendeeRepository;
+    }
+
+    public IActionResult Get()
+    {
+        var pagination = Request.Headers["Pagination"];
+
+        if (!string.IsNullOrEmpty(pagination))
+        {
+            string[] vals = pagination.ToString().Split(',');
+            int.TryParse(vals[0], out page);
+            int.TryParse(vals[1], out pageSize);
+        }
+
+        int currentPage = page;
+        int currentPageSize = pageSize;
+        var totalUsers = _userRepository.Count();
+        var totalPages = (int)Math.Ceiling((double)totalUsers /
+             pageSize);
+
+        IEnumerable<User> _users = _userRepository
+                .AllIncluding(u => u.SchedulesCreated)
+                .OrderBy(u => u.Id)
+                .Skip((currentPage - 1) * currentPageSize)
+                .Take(currentPageSize)
+                .ToList();
+
+        IEnumerable<UserViewModel> _usersVM =
+                _mapper.Map<IEnumerable<User>,
+                IEnumerable<UserViewModel>>(_users);
+
+        Response.AddPagination(page, pageSize, totalUsers, totalPages);
+        return new OkObjectResult(_usersVM);
+    }
+
+    [HttpGet("{id}", Name = "GetUser")]
+    public IActionResult Get(int id)
+    {
+        User _user = _userRepository.GetSingle(u => u.Id == id, u =>
+            u.SchedulesCreated);
+
+        if (_user != null)
+        {
+            UserViewModel _userVM = _mapper.Map<User,
+                UserViewModel>(_user);
+            return new OkObjectResult(_userVM);
+        }
+        else
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpGet("{id}/schedules", Name = "GetUserSchedules")]
+    public IActionResult GetSchedules(int id)
+    {
+        IEnumerable<Schedule> _userSchedules =
+                 _scheduleRepository.FindBy(s => s.CreatorId == id);
+
+        if (_userSchedules != null)
+        {
+            IEnumerable<ScheduleViewModel> _userSchedulesVM =
+                 _mapper.Map<IEnumerable<Schedule>,
+                 IEnumerable<ScheduleViewModel>>(_userSchedules);
+            return new OkObjectResult(_userSchedulesVM);
+        }
+        else
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpPost]
+    public IActionResult Create([FromBody]UserViewModel user)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        User _newUser = new User { Name = user.Name, Profession =
+                 user.Profession, Avatar = user.Avatar };
+
+        _userRepository.Add(_newUser);
+        _userRepository.Commit();
+        user = _mapper.Map<User, UserViewModel>(_newUser);
+
+        CreatedAtRouteResult result = CreatedAtRoute("GetUser",
+                  new {controller = "Users", id = user.Id }, user);
+        return result;
+    }
+
+    [HttpPut("{id}")]
+    public IActionResult Put(int id, [FromBody]UserViewModel user)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        User _userDb = _userRepository.GetSingle(id);
+
+        if (_userDb == null)
+        {
+            return NotFound();
+        }
+        else
+        {
+            _userDb.Name = user.Name;
+            _userDb.Profession = user.Profession;
+            _userDb.Avatar = user.Avatar;
+            _userRepository.Commit();
+        }
+
+        user = _mapper.Map<User, UserViewModel>(_userDb);
+        return new NoContentResult();
+    }
+
+    [HttpDelete("{id}")]
+    public IActionResult Delete(int id)
+    {
+        User _userDb = _userRepository.GetSingle(id);
+
+        if (_userDb == null)
+        {
+            return new NotFoundResult();
+        }
+        else
+        {
+            IEnumerable<Attendee> _attendees =
+                _attendeeRepository.FindBy(a => a.UserId == id);
+            IEnumerable<Schedule> _schedules =
+                _scheduleRepository.FindBy(s => s.CreatorId == id);
+
+            foreach (var attendee in _attendees)
+            {
+                _attendeeRepository.Delete(attendee);
+            }
+
+            foreach (var schedule in _schedules)
+            {
+                _attendeeRepository.DeleteWhere(a => a.ScheduleId ==
+                    schedule.Id);
+                _scheduleRepository.Delete(schedule);
+            }
+            _userRepository.Delete(_userDb);
+            _userRepository.Commit();
+            return new NoContentResult();
+        }
+    }
+}
+
+<strong>5. Generating the Database from Code Using Migrations</strong>
+<strong>Let</strong> us compile the solution. As mentioned above we can use migration in solution directory by following command in the Package Manager Console:
+
+<span class="has-inline-color" style="color:#272b2d">pm&gt;add migration initial
+</span>
+<span class="has-inline-color" style="color:#272b2d">pm&gt;update-database
+</span>
+You can check the database <em>SchedulerDb</em> is created with tables <em>Schedule</em>, <em>Attendee</em> and <em>User</em>. Also the <em>Migrations</em> folder is created in the API root folder. The inside <em>Migrations</em> folder, initial file is created.
+
+</pre>
+
+</div>
+</body>
+</html>
